@@ -1,0 +1,44 @@
+# 在每次 push 时（含本地 git push 与 GitHub 网页 commit/push）将 docs/ 与根目录 JSON 同步到 AWS S3
+name: Sync docs to AWS S3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - '*.json'
+  # 支持在 GitHub 网页上手动触发
+  workflow_dispatch:
+
+jobs:
+  sync-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Sync docs and JSON to S3
+        env:
+          S3_PREFIX: ${{ secrets.AWS_S3_DOCS_PREFIX }}
+        run: |
+          BUCKET="${{ secrets.AWS_S3_BUCKET }}"
+          PREFIX="${S3_PREFIX:-docs}"
+          if [ -z "$BUCKET" ]; then
+            echo "::error::AWS_S3_BUCKET secret is not set"
+            exit 1
+          fi
+          TARGET="s3://${BUCKET}/${PREFIX}"
+          echo "Syncing docs/ to ${TARGET}/docs/"
+          aws s3 sync ./docs "${TARGET}/docs/" --delete
+          echo "Uploading root JSON files to ${TARGET}/"
+          for f in *.json; do
+            [ -f "$f" ] && aws s3 cp "$f" "${TARGET}/$f"
+          done
